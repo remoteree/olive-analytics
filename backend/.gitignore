@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.env
+*.log
+.DS_Store
+gen-lang-client-0644577160-9d28d8c72b6a.json
+
