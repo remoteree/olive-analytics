@@ -8,7 +8,8 @@
     "dev:worker": "tsx watch src/worker/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "start:worker": "node dist/worker/index.js"
+    "start:worker": "node dist/worker/index.js",
+    "create-admin": "tsx src/scripts/createAdmin.ts"
   },
   "keywords": [],
   "author": "",
@@ -23,12 +24,18 @@
     "axios": "^1.6.2",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "crypto": "^1.0.1"
+    "crypto": "^1.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "nodemailer": "^6.9.7"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/cors": "^2.8.17",
     "@types/node": "^20.10.5",
+    "@types/jsonwebtoken": "^9.0.5",
+    "@types/bcryptjs": "^2.4.6",
+    "@types/nodemailer": "^6.4.14",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }

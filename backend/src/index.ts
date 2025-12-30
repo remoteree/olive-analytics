@@ -2,9 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { connectDB } from './config/database';
+import authRoutes from './routes/auth';
 import shopRoutes from './routes/shops';
 import invoiceRoutes from './routes/invoices';
 import fileRoutes from './routes/files';
+import adminRoutes from './routes/admin';
 
 dotenv.config();
 
@@ -15,10 +17,14 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 
-// Routes
+// Public routes
+app.use('/api/auth', authRoutes);
+
+// Protected routes
 app.use('/api/shops', shopRoutes);
 app.use('/api/invoices', invoiceRoutes);
 app.use('/api/files', fileRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/health', (req, res) => {

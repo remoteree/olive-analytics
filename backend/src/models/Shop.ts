@@ -4,6 +4,7 @@ export interface IShop extends Document {
   shopId: string;
   name: string;
   cohort?: string;
+  ownerId?: mongoose.Types.ObjectId; // Reference to User
   createdAt: Date;
 }
 
@@ -20,6 +21,11 @@ const ShopSchema = new Schema<IShop>({
   },
   cohort: {
     type: String,
+  },
+  ownerId: {
+    type: Schema.Types.ObjectId,
+    ref: 'User',
+    index: true,
   },
   createdAt: {
     type: Date,
