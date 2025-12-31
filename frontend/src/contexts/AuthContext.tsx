@@ -15,7 +15,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
-  signup: (email: string, role: string, shopId?: string) => Promise<void>;
+  signup: (email: string, role: string, shopId?: string) => Promise<{ message: string; temporaryPassword: string }>;
   logout: () => void;
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
@@ -69,9 +69,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const handleSignup = async (email: string, role: string, shopId?: string) => {
-    await signup(email, role, shopId);
+    const result = await signup(email, role, shopId);
     // After signup, admin can see the temporary password
     // They should inform the user
+    return result;
   };
 
   const handleLogout = () => {

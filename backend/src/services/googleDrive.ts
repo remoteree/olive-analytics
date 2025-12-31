@@ -1,4 +1,4 @@
-import { google } from 'googleapis';
+import { google, Auth } from 'googleapis';
 import { Readable } from 'stream';
 
 /**
@@ -6,7 +6,7 @@ import { Readable } from 'stream';
  * If GOOGLE_APPLICATION_CREDENTIALS starts with '{', it's treated as JSON
  * Otherwise, it's treated as a file path (backward compatibility)
  */
-export function createGoogleAuth(scopes: string[] = ['https://www.googleapis.com/auth/drive']) {
+export function createGoogleAuth(scopes: string[] = ['https://www.googleapis.com/auth/drive']): Auth.GoogleAuth {
   const credentialsEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
   
   if (!credentialsEnv) {
@@ -18,7 +18,7 @@ export function createGoogleAuth(scopes: string[] = ['https://www.googleapis.com
     try {
       // Parse JSON credentials from environment variable
       const credentials = JSON.parse(credentialsEnv);
-      return new google.auth.GoogleAuth({
+      return new Auth.GoogleAuth({
         credentials,
         scopes,
       });
@@ -27,7 +27,7 @@ export function createGoogleAuth(scopes: string[] = ['https://www.googleapis.com
     }
   } else {
     // Use as file path (backward compatibility)
-    return new google.auth.GoogleAuth({
+    return new Auth.GoogleAuth({
       keyFile: credentialsEnv,
       scopes,
     });
@@ -35,7 +35,7 @@ export function createGoogleAuth(scopes: string[] = ['https://www.googleapis.com
 }
 
 // Lazy initialization - only create auth/drive when actually used
-let _auth: google.auth.GoogleAuth | null = null;
+let _auth: Auth.GoogleAuth | null = null;
 let _drive: ReturnType<typeof google.drive> | null = null;
 
 function getAuth() {

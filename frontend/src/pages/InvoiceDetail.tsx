@@ -16,13 +16,12 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  Paper,
   Divider,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CancelIcon from '@mui/icons-material/Cancel';
-import { getInvoice, reprocessInvoice, cancelProcessing, getOriginalInvoiceUrl, Invoice, RecommendationSummary, SavingsRange } from '../api/invoices';
+import { getInvoice, reprocessInvoice, cancelProcessing, getOriginalInvoiceUrl, Invoice, RecommendationSummary } from '../api/invoices';
 
 export default function InvoiceDetail() {
   const { invoiceId } = useParams<{ invoiceId: string }>();

@@ -7,9 +7,10 @@
     "dev": "tsx watch src/index.ts",
     "dev:worker": "tsx watch src/worker/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
-    "start:worker": "node dist/worker/index.js",
-    "create-admin": "tsx src/scripts/createAdmin.ts"
+    "start": "NODE_ENV=production node dist/index.js",
+    "start:worker": "NODE_ENV=production node dist/worker/index.js",
+    "create-admin": "tsx src/scripts/createAdmin.ts",
+    "deploy": "../deploy.sh"
   },
   "keywords": [],
   "author": "",

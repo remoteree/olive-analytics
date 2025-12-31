@@ -1,0 +1,7 @@
+# Deployment
+deploy-package/
+*.zip
+
+# Environment files
+backend/.env
+frontend/.env

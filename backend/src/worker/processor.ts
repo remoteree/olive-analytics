@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import Invoice, { InvoiceStatus } from '../models/Invoice';
+import Invoice, { InvoiceStatus, IInvoice } from '../models/Invoice';
 import { downloadFile, moveFile, getFileExtension, getFolderId } from '../services/googleDrive';
 import { uploadToS3, getS3Key } from '../services/s3';
 import { extractInvoiceData } from '../services/ocr';
@@ -12,7 +12,7 @@ import crypto from 'crypto';
 const MAX_RETRY_ATTEMPTS = 3;
 const STUCK_INVOICE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
-export async function processInvoice(): Promise<Invoice | null> {
+export async function processInvoice(): Promise<IInvoice | null> {
   const startTime = Date.now();
   
   // Step 1: Acquire and lock one invoice
@@ -95,7 +95,7 @@ export async function processInvoice(): Promise<Invoice | null> {
   }
 }
 
-async function acquireAndLockInvoice(): Promise<Invoice | null> {
+async function acquireAndLockInvoice(): Promise<IInvoice | null> {
   // First, check for and unlock stuck invoices (locked for too long)
   await unlockStuckInvoices();
   
@@ -151,7 +151,7 @@ async function unlockStuckInvoices(): Promise<void> {
   }
 }
 
-async function processInvoiceStages(invoice: Invoice): Promise<void> {
+async function processInvoiceStages(invoice: IInvoice): Promise<void> {
   // Stage 1: Download invoice
   console.log(`[${new Date().toISOString()}] [STAGE 1/9] DOWNLOADING - Downloading invoice file from Google Drive...`);
   invoice.processing.stage = 'downloading';
@@ -223,7 +223,7 @@ async function processInvoiceStages(invoice: Invoice): Promise<void> {
   console.log(`[${new Date().toISOString()}] [STAGE 5/9] RESOLVING ENTITIES ✓ Shop resolved: ${invoice.shopId}`);
   
   const supplierIdStr = await resolveOrCreateSupplier(extractedData.supplierName);
-  invoice.supplierId = new mongoose.Types.ObjectId(supplierIdStr);
+  invoice.supplierId = supplierIdStr;
   console.log(`[${new Date().toISOString()}] [STAGE 5/9] RESOLVING ENTITIES ✓ Supplier resolved: ${extractedData.supplierName} (ID: ${supplierIdStr})`);
   
   await resolveOrCreateParts(extractedData.lineItems);

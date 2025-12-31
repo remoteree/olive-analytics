@@ -5,3 +5,13 @@ dist/
 .DS_Store
 gen-lang-client-0644577160-9d28d8c72b6a.json
 
+# Frontend build output
+frontend-dist/
+
+# Deployment packages
+deploy-package/
+*.zip
+
+# Elastic Beanstalk generated config
+.ebextensions/environment.config
+

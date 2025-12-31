@@ -1,11 +1,11 @@
-import { google } from 'googleapis';
+import { google, Auth } from 'googleapis';
 import DriveScan, { IDriveScan, IScannedFile } from '../models/DriveScan';
 import Invoice from '../models/Invoice';
 import Shop from '../models/Shop';
 import { findOrCreateFolder, createGoogleAuth } from './googleDrive';
 
 // Lazy initialization - only create auth/drive when actually used
-let _auth: google.auth.GoogleAuth | null = null;
+let _auth: Auth.GoogleAuth | null = null;
 let _drive: ReturnType<typeof google.drive> | null = null;
 
 function getAuth() {
@@ -280,7 +280,15 @@ async function listFilesInFolder(folderId: string): Promise<Array<{ id?: string;
       });
 
       if (response.data.files) {
-        files.push(...response.data.files);
+        // Map Schema$File to our expected type, filtering out null ids
+        const mappedFiles = response.data.files
+          .filter((file): file is { id: string; name?: string | null; mimeType?: string | null } => file.id !== null && file.id !== undefined)
+          .map((file) => ({
+            id: file.id!,
+            name: file.name || undefined,
+            mimeType: file.mimeType || undefined,
+          }));
+        files.push(...mappedFiles);
       }
 
       pageToken = response.data.nextPageToken || undefined;
