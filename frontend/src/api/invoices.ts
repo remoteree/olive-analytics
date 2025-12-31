@@ -35,13 +35,31 @@ export interface TrendAnalysis {
   anomalies?: string[];
 }
 
+export interface SavingsRange {
+  min: number;
+  max: number;
+}
+
 export interface Recommendation {
   type: 'alternative_supplier' | 'bulk_order' | 'price_match' | 'other';
   title: string;
   description: string;
-  potentialSavings?: number;
+  potentialSavings?: number; // Legacy field
+  savingsRange?: SavingsRange;
+  savingsPercentRange?: SavingsRange;
   confidence: number;
   evidence: string[];
+  actionSteps: string[];
+  estimatedTimeToImplement?: string;
+}
+
+export interface RecommendationSummary {
+  totalSavingsRange: SavingsRange;
+  totalSavingsPercentRange: SavingsRange;
+  estimatedTotalSavings: number;
+  estimatedTotalSavingsPercent: number;
+  combinedActionSteps: string[];
+  recommendationCount: number;
 }
 
 export type InvoiceStatus = 'queued' | 'processing' | 'processed' | 'failed';

@@ -1,12 +1,21 @@
 import axios from 'axios';
 
+export interface SavingsRange {
+  min: number;
+  max: number;
+}
+
 export interface SavingsRecommendation {
   type: 'alternative_supplier' | 'bulk_order' | 'price_match' | 'other';
   title: string;
   description: string;
-  potentialSavings?: number;
+  potentialSavings?: number; // Legacy field for backward compatibility
+  savingsRange?: SavingsRange; // New: dollar amount range
+  savingsPercentRange?: SavingsRange; // New: percentage range (0-100)
   confidence: number;
   evidence: string[];
+  actionSteps: string[]; // New: specific steps to achieve savings
+  estimatedTimeToImplement?: string; // New: e.g., "1-2 weeks", "immediate"
 }
 
 export async function generateSavingsRecommendations(
@@ -30,20 +39,31 @@ ${itemsDescription}
 Total: $${totals.total.toFixed(2)}
 
 Provide actionable savings recommendations. Consider:
-1. Alternative suppliers with better pricing
-2. Bulk order opportunities
-3. Price matching strategies
+1. Alternative suppliers with better pricing (RockAuto, PartsGeek, CarParts.com, etc.)
+2. Bulk order opportunities (volume discounts)
+3. Price matching strategies (calling suppliers to match competitor prices)
 4. Other cost-saving opportunities
 
-For each recommendation, provide:
-- Type (alternative_supplier, bulk_order, price_match, or other)
-- Title
-- Description
-- Potential savings estimate (if applicable)
-- Confidence level (0-1)
-- Evidence/sources
+For each recommendation, provide a JSON object with:
+- type: "alternative_supplier" | "bulk_order" | "price_match" | "other"
+- title: Short descriptive title
+- description: Detailed explanation of the recommendation
+- savingsRange: { min: number, max: number } - Estimated dollar savings range (e.g., { min: 50, max: 150 })
+- savingsPercentRange: { min: number, max: number } - Estimated percentage savings range (0-100, e.g., { min: 5, max: 15 })
+- confidence: Number between 0-1 (how confident you are in this recommendation)
+- evidence: Array of strings with specific sources, prices, or data points
+- actionSteps: Array of specific actionable steps to achieve these savings (e.g., ["Call RockAuto and request quote for SKU BP-12345", "Compare pricing with PartsGeek", "Negotiate bulk discount for orders over $500"])
+- estimatedTimeToImplement: String describing time needed (e.g., "1-2 weeks", "immediate", "2-4 weeks")
 
-Respond with a JSON array of recommendations.`;
+IMPORTANT: 
+- Provide realistic savings ranges based on typical auto parts pricing
+- For alternative_supplier: savings typically 5-25% ($50-$500 for orders this size)
+- For bulk_order: savings typically 10-30% ($100-$600 for orders this size) 
+- For price_match: savings typically 3-15% ($30-$300 for orders this size)
+- Include specific action steps that can be taken immediately
+- Use actual supplier names and realistic price comparisons
+
+Respond with a JSON array of recommendations only, no additional text or markdown.`;
 
   try {
     // Use a model that's available in Perplexity API
@@ -109,14 +129,32 @@ Respond with a JSON array of recommendations.`;
       recommendations = [recommendations as any];
     }
     
-    // Validate structure
-    return recommendations.filter(rec => 
-      rec && 
-      typeof rec === 'object' && 
-      rec.type && 
-      rec.title && 
-      rec.description
-    );
+    // Validate structure and ensure required fields
+    const validatedRecommendations = recommendations
+      .filter(rec => 
+        rec && 
+        typeof rec === 'object' && 
+        rec.type && 
+        rec.title && 
+        rec.description
+      )
+      .map(rec => {
+        // Ensure actionSteps exists
+        if (!rec.actionSteps || !Array.isArray(rec.actionSteps)) {
+          rec.actionSteps = [];
+        }
+        // Calculate potentialSavings from savingsRange if not provided (for backward compatibility)
+        if (!rec.potentialSavings && rec.savingsRange) {
+          rec.potentialSavings = (rec.savingsRange.min + rec.savingsRange.max) / 2;
+        }
+        // Ensure confidence is a number
+        if (typeof rec.confidence !== 'number' || isNaN(rec.confidence)) {
+          rec.confidence = 0.5; // Default confidence
+        }
+        return rec;
+      });
+    
+    return validatedRecommendations;
   } catch (error: any) {
     console.error('Error generating savings recommendations:', error.message || error);
     if (error.response) {
@@ -124,5 +162,81 @@ Respond with a JSON array of recommendations.`;
     }
     return [];
   }
+}
+
+export interface RecommendationSummary {
+  totalSavingsRange: SavingsRange;
+  totalSavingsPercentRange: SavingsRange;
+  estimatedTotalSavings: number; // Average of min/max
+  estimatedTotalSavingsPercent: number; // Average percentage
+  combinedActionSteps: string[];
+  recommendationCount: number;
+}
+
+export function calculateRecommendationSummary(
+  recommendations: SavingsRecommendation[],
+  invoiceTotal: number
+): RecommendationSummary {
+  if (recommendations.length === 0) {
+    return {
+      totalSavingsRange: { min: 0, max: 0 },
+      totalSavingsPercentRange: { min: 0, max: 0 },
+      estimatedTotalSavings: 0,
+      estimatedTotalSavingsPercent: 0,
+      combinedActionSteps: [],
+      recommendationCount: 0,
+    };
+  }
+
+  // Aggregate savings ranges
+  let totalMinSavings = 0;
+  let totalMaxSavings = 0;
+  let totalMinPercent = 0;
+  let totalMaxPercent = 0;
+  const allActionSteps: string[] = [];
+
+  recommendations.forEach(rec => {
+    if (rec.savingsRange) {
+      totalMinSavings += rec.savingsRange.min;
+      totalMaxSavings += rec.savingsRange.max;
+    } else if (rec.potentialSavings) {
+      // Fallback to potentialSavings if range not available
+      const estimatedSavings = rec.potentialSavings;
+      totalMinSavings += estimatedSavings * 0.8; // Assume 20% variance
+      totalMaxSavings += estimatedSavings * 1.2;
+    }
+
+    if (rec.savingsPercentRange) {
+      totalMinPercent += rec.savingsPercentRange.min;
+      totalMaxPercent += rec.savingsPercentRange.max;
+    } else if (rec.potentialSavings && invoiceTotal > 0) {
+      // Calculate percentage from dollar amount
+      const percent = (rec.potentialSavings / invoiceTotal) * 100;
+      totalMinPercent += percent * 0.8;
+      totalMaxPercent += percent * 1.2;
+    }
+
+    if (rec.actionSteps && Array.isArray(rec.actionSteps)) {
+      allActionSteps.push(...rec.actionSteps);
+    }
+  });
+
+  // Cap percentage at 100%
+  totalMaxPercent = Math.min(totalMaxPercent, 100);
+
+  const estimatedTotalSavings = (totalMinSavings + totalMaxSavings) / 2;
+  const estimatedTotalSavingsPercent = (totalMinPercent + totalMaxPercent) / 2;
+
+  // Remove duplicate action steps
+  const uniqueActionSteps = Array.from(new Set(allActionSteps));
+
+  return {
+    totalSavingsRange: { min: totalMinSavings, max: totalMaxSavings },
+    totalSavingsPercentRange: { min: totalMinPercent, max: totalMaxPercent },
+    estimatedTotalSavings,
+    estimatedTotalSavingsPercent,
+    combinedActionSteps: uniqueActionSteps,
+    recommendationCount: recommendations.length,
+  };
 }
 

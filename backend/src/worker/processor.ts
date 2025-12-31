@@ -5,7 +5,7 @@ import { uploadToS3, getS3Key } from '../services/s3';
 import { extractInvoiceData } from '../services/ocr';
 import { resolveOrCreateShop, resolveOrCreateSupplier, resolveOrCreateParts } from '../services/entityResolution';
 import { classifyPurchaseContext } from '../services/llm';
-import { generateSavingsRecommendations } from '../services/perplexity';
+import { generateSavingsRecommendations, calculateRecommendationSummary } from '../services/perplexity';
 import { analyzeTrends } from '../services/trendAnalysis';
 import crypto from 'crypto';
 
@@ -275,11 +275,9 @@ async function processInvoiceStages(invoice: Invoice): Promise<void> {
   invoice.recommendations = recommendations;
   console.log(`[${new Date().toISOString()}] [STAGE 8/9] GENERATING RECOMMENDATIONS ✓ Generated ${recommendations.length} recommendations`);
   if (recommendations.length > 0) {
-    const totalPotentialSavings = recommendations
-      .reduce((sum, rec) => sum + (rec.potentialSavings || 0), 0);
-    if (totalPotentialSavings > 0) {
-      console.log(`[${new Date().toISOString()}] [STAGE 8/9] GENERATING RECOMMENDATIONS   - Potential savings: $${totalPotentialSavings.toFixed(2)}`);
-    }
+    const summary = calculateRecommendationSummary(recommendations, extractedData.totals.total);
+    console.log(`[${new Date().toISOString()}] [STAGE 8/9] GENERATING RECOMMENDATIONS   - Estimated savings: $${summary.estimatedTotalSavings.toFixed(2)} (${summary.estimatedTotalSavingsPercent.toFixed(1)}%)`);
+    console.log(`[${new Date().toISOString()}] [STAGE 8/9] GENERATING RECOMMENDATIONS   - Savings range: $${summary.totalSavingsRange.min.toFixed(2)} - $${summary.totalSavingsRange.max.toFixed(2)} (${summary.totalSavingsPercentRange.min.toFixed(1)}% - ${summary.totalSavingsPercentRange.max.toFixed(1)}%)`);
   }
   
   // Stage 9: Persist processed data to S3

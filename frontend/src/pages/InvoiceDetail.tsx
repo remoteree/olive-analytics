@@ -22,7 +22,7 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
 import CancelIcon from '@mui/icons-material/Cancel';
-import { getInvoice, reprocessInvoice, cancelProcessing, getOriginalInvoiceUrl, Invoice } from '../api/invoices';
+import { getInvoice, reprocessInvoice, cancelProcessing, getOriginalInvoiceUrl, Invoice, RecommendationSummary, SavingsRange } from '../api/invoices';
 
 export default function InvoiceDetail() {
   const { invoiceId } = useParams<{ invoiceId: string }>();
@@ -106,6 +106,58 @@ export default function InvoiceDetail() {
         return 'default';
     }
   };
+
+  const calculateRecommendationSummary = (): RecommendationSummary | null => {
+    if (!invoice || invoice.recommendations.length === 0) {
+      return null;
+    }
+
+    const invoiceTotal = invoice.totals?.total || 0;
+    if (invoiceTotal === 0) return null;
+
+    let totalMinSavings = 0;
+    let totalMaxSavings = 0;
+    let totalMinPercent = 0;
+    let totalMaxPercent = 0;
+    const allActionSteps: string[] = [];
+
+    invoice.recommendations.forEach(rec => {
+      if (rec.savingsRange) {
+        totalMinSavings += rec.savingsRange.min;
+        totalMaxSavings += rec.savingsRange.max;
+      } else if (rec.potentialSavings) {
+        const estimatedSavings = rec.potentialSavings;
+        totalMinSavings += estimatedSavings * 0.8;
+        totalMaxSavings += estimatedSavings * 1.2;
+      }
+
+      if (rec.savingsPercentRange) {
+        totalMinPercent += rec.savingsPercentRange.min;
+        totalMaxPercent += rec.savingsPercentRange.max;
+      } else if (rec.potentialSavings && invoiceTotal > 0) {
+        const percent = (rec.potentialSavings / invoiceTotal) * 100;
+        totalMinPercent += percent * 0.8;
+        totalMaxPercent += percent * 1.2;
+      }
+
+      if (rec.actionSteps && Array.isArray(rec.actionSteps)) {
+        allActionSteps.push(...rec.actionSteps);
+      }
+    });
+
+    totalMaxPercent = Math.min(totalMaxPercent, 100);
+
+    return {
+      totalSavingsRange: { min: totalMinSavings, max: totalMaxSavings },
+      totalSavingsPercentRange: { min: totalMinPercent, max: totalMaxPercent },
+      estimatedTotalSavings: (totalMinSavings + totalMaxSavings) / 2,
+      estimatedTotalSavingsPercent: (totalMinPercent + totalMaxPercent) / 2,
+      combinedActionSteps: Array.from(new Set(allActionSteps)),
+      recommendationCount: invoice.recommendations.length,
+    };
+  };
+
+  const summary = calculateRecommendationSummary();
 
   if (loading) {
     return (
@@ -229,49 +281,123 @@ export default function InvoiceDetail() {
           )}
 
           {invoice.recommendations.length > 0 && (
-            <Card>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Savings Recommendations
-                </Typography>
-                {invoice.recommendations.map((rec, idx) => (
-                  <Card key={idx} variant="outlined" sx={{ mb: 2 }}>
-                    <CardContent>
-                      <Box display="flex" justifyContent="space-between" mb={1}>
-                        <Typography variant="subtitle1">{rec.title}</Typography>
-                        {rec.potentialSavings && (
-                          <Chip
-                            label={`Save $${rec.potentialSavings.toFixed(2)}`}
-                            color="success"
-                            size="small"
-                          />
-                        )}
+            <>
+              {summary && (
+                <Card sx={{ mb: 3 }} elevation={3}>
+                  <CardContent>
+                    <Typography variant="h6" gutterBottom color="success.main">
+                      Savings Summary
+                    </Typography>
+                    <Box mb={2}>
+                      <Typography variant="h4" color="success.main" gutterBottom>
+                        ${summary.estimatedTotalSavings.toFixed(2)}
+                      </Typography>
+                      <Typography variant="body1" color="text.secondary">
+                        Estimated Savings ({summary.estimatedTotalSavingsPercent.toFixed(1)}%)
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        Range: ${summary.totalSavingsRange.min.toFixed(2)} - ${summary.totalSavingsRange.max.toFixed(2)} 
+                        ({summary.totalSavingsPercentRange.min.toFixed(1)}% - {summary.totalSavingsPercentRange.max.toFixed(1)}%)
+                      </Typography>
+                    </Box>
+                    {summary.combinedActionSteps.length > 0 && (
+                      <Box mt={2}>
+                        <Typography variant="subtitle2" gutterBottom>
+                          Action Steps to Achieve Savings:
+                        </Typography>
+                        <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                          {summary.combinedActionSteps.map((step, idx) => (
+                            <li key={idx}>
+                              <Typography variant="body2">{step}</Typography>
+                            </li>
+                          ))}
+                        </ul>
                       </Box>
-                      <Typography variant="body2" color="text.secondary" paragraph>
-                        {rec.description}
-                      </Typography>
-                      {rec.evidence.length > 0 && (
-                        <Box>
-                          <Typography variant="caption" fontWeight="bold">
-                            Evidence:
-                          </Typography>
-                          <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
-                            {rec.evidence.map((evidence, eIdx) => (
-                              <li key={eIdx}>
-                                <Typography variant="caption">{evidence}</Typography>
-                              </li>
-                            ))}
-                          </ul>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+              <Card>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Savings Recommendations ({invoice.recommendations.length})
+                  </Typography>
+                  {invoice.recommendations.map((rec, idx) => (
+                    <Card key={idx} variant="outlined" sx={{ mb: 2 }}>
+                      <CardContent>
+                        <Box display="flex" justifyContent="space-between" alignItems="flex-start" mb={1}>
+                          <Box flex={1}>
+                            <Typography variant="subtitle1">{rec.title}</Typography>
+                            {rec.estimatedTimeToImplement && (
+                              <Typography variant="caption" color="text.secondary">
+                                Estimated time: {rec.estimatedTimeToImplement}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Box>
+                            {rec.savingsRange ? (
+                              <Box textAlign="right">
+                                <Chip
+                                  label={`$${rec.savingsRange.min.toFixed(0)}-$${rec.savingsRange.max.toFixed(0)}`}
+                                  color="success"
+                                  size="small"
+                                  sx={{ mb: 0.5, display: 'block' }}
+                                />
+                                {rec.savingsPercentRange && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {rec.savingsPercentRange.min.toFixed(0)}-{rec.savingsPercentRange.max.toFixed(0)}%
+                                  </Typography>
+                                )}
+                              </Box>
+                            ) : rec.potentialSavings ? (
+                              <Chip
+                                label={`Save $${rec.potentialSavings.toFixed(2)}`}
+                                color="success"
+                                size="small"
+                              />
+                            ) : null}
+                          </Box>
                         </Box>
-                      )}
-                      <Typography variant="caption" color="text.secondary">
-                        Confidence: {(rec.confidence * 100).toFixed(0)}%
-                      </Typography>
-                    </CardContent>
-                  </Card>
-                ))}
-              </CardContent>
-            </Card>
+                        <Typography variant="body2" color="text.secondary" paragraph>
+                          {rec.description}
+                        </Typography>
+                        {rec.actionSteps && rec.actionSteps.length > 0 && (
+                          <Box mb={1}>
+                            <Typography variant="caption" fontWeight="bold">
+                              Action Steps:
+                            </Typography>
+                            <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+                              {rec.actionSteps.map((step, sIdx) => (
+                                <li key={sIdx}>
+                                  <Typography variant="caption">{step}</Typography>
+                                </li>
+                              ))}
+                            </ul>
+                          </Box>
+                        )}
+                        {rec.evidence.length > 0 && (
+                          <Box mb={1}>
+                            <Typography variant="caption" fontWeight="bold">
+                              Evidence:
+                            </Typography>
+                            <ul style={{ margin: '4px 0', paddingLeft: '20px' }}>
+                              {rec.evidence.map((evidence, eIdx) => (
+                                <li key={eIdx}>
+                                  <Typography variant="caption">{evidence}</Typography>
+                                </li>
+                              ))}
+                            </ul>
+                          </Box>
+                        )}
+                        <Typography variant="caption" color="text.secondary">
+                          Confidence: {(rec.confidence * 100).toFixed(0)}%
+                        </Typography>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </CardContent>
+              </Card>
+            </>
           )}
         </Grid>
 

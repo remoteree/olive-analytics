@@ -2,14 +2,25 @@ import { google } from 'googleapis';
 import DriveScan, { IDriveScan, IScannedFile } from '../models/DriveScan';
 import Invoice from '../models/Invoice';
 import Shop from '../models/Shop';
-import { findOrCreateFolder } from './googleDrive';
+import { findOrCreateFolder, createGoogleAuth } from './googleDrive';
 
-const auth = new google.auth.GoogleAuth({
-  keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-  scopes: ['https://www.googleapis.com/auth/drive.readonly'],
-});
+// Lazy initialization - only create auth/drive when actually used
+let _auth: google.auth.GoogleAuth | null = null;
+let _drive: ReturnType<typeof google.drive> | null = null;
 
-const drive = google.drive({ version: 'v3', auth });
+function getAuth() {
+  if (!_auth) {
+    _auth = createGoogleAuth(['https://www.googleapis.com/auth/drive.readonly']);
+  }
+  return _auth;
+}
+
+function getDrive() {
+  if (!_drive) {
+    _drive = google.drive({ version: 'v3', auth: getAuth() });
+  }
+  return _drive;
+}
 
 // Supported invoice file types
 const INVOICE_MIME_TYPES = [
@@ -198,6 +209,7 @@ async function listShopFolders(parentFolderId: string): Promise<Array<{ id: stri
 
   do {
     try {
+      const drive = getDrive();
       const response = await drive.files.list({
         q: `'${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         fields: 'nextPageToken, files(id, name)',
@@ -232,6 +244,7 @@ async function findShopFolder(
   shopId: string
 ): Promise<{ id: string; name: string } | null> {
   try {
+    const drive = getDrive();
     const response = await drive.files.list({
       q: `'${parentFolderId}' in parents and name='${shopId}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
       fields: 'files(id, name)',
@@ -258,6 +271,7 @@ async function listFilesInFolder(folderId: string): Promise<Array<{ id?: string;
 
   do {
     try {
+      const drive = getDrive();
       const response = await drive.files.list({
         q: `'${folderId}' in parents and trashed=false`,
         fields: 'nextPageToken, files(id, name, mimeType)',

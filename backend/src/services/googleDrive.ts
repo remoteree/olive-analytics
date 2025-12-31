@@ -1,17 +1,62 @@
 import { google } from 'googleapis';
 import { Readable } from 'stream';
 
-const auth = new google.auth.GoogleAuth({
-  keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
-  scopes: ['https://www.googleapis.com/auth/drive'],
-});
+/**
+ * Creates Google Auth instance supporting both JSON string and file path
+ * If GOOGLE_APPLICATION_CREDENTIALS starts with '{', it's treated as JSON
+ * Otherwise, it's treated as a file path (backward compatibility)
+ */
+export function createGoogleAuth(scopes: string[] = ['https://www.googleapis.com/auth/drive']) {
+  const credentialsEnv = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  
+  if (!credentialsEnv) {
+    throw new Error('GOOGLE_APPLICATION_CREDENTIALS environment variable is not set');
+  }
 
-const drive = google.drive({ version: 'v3', auth });
+  // Check if it's JSON (starts with {) or a file path
+  if (credentialsEnv.trim().startsWith('{')) {
+    try {
+      // Parse JSON credentials from environment variable
+      const credentials = JSON.parse(credentialsEnv);
+      return new google.auth.GoogleAuth({
+        credentials,
+        scopes,
+      });
+    } catch (error) {
+      throw new Error('Failed to parse GOOGLE_APPLICATION_CREDENTIALS as JSON. Ensure it contains valid JSON.');
+    }
+  } else {
+    // Use as file path (backward compatibility)
+    return new google.auth.GoogleAuth({
+      keyFile: credentialsEnv,
+      scopes,
+    });
+  }
+}
+
+// Lazy initialization - only create auth/drive when actually used
+let _auth: google.auth.GoogleAuth | null = null;
+let _drive: ReturnType<typeof google.drive> | null = null;
+
+function getAuth() {
+  if (!_auth) {
+    _auth = createGoogleAuth();
+  }
+  return _auth;
+}
+
+function getDrive() {
+  if (!_drive) {
+    _drive = google.drive({ version: 'v3', auth: getAuth() });
+  }
+  return _drive;
+}
 
 const DRIVE_BASE_FOLDER = process.env.GOOGLE_DRIVE_BASE_FOLDER_ID || '';
 
 export async function downloadFile(fileId: string): Promise<{ buffer: Buffer; mimeType: string; name: string }> {
   try {
+    const drive = getDrive();
     const fileMetadata = await drive.files.get({
       fileId,
       fields: 'name, mimeType',
@@ -41,6 +86,7 @@ export async function moveFile(
   removeFromParents?: string
 ): Promise<void> {
   try {
+    const drive = getDrive();
     // If removeFromParents not provided, get current parents
     let parentsToRemove = removeFromParents;
     if (!parentsToRemove) {
@@ -102,6 +148,7 @@ export async function getFolderId(shopId: string, folderType: 'unprocessed' | 'p
 
 export async function findOrCreateFolder(parentId: string, folderName: string): Promise<string> {
   try {
+    const drive = getDrive();
     // Search for existing folder
     const response = await drive.files.list({
       q: `'${parentId}' in parents and name='${folderName}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,

@@ -35,13 +35,22 @@ export interface ITrendAnalysis {
   anomalies?: string[];
 }
 
+export interface ISavingsRange {
+  min: number;
+  max: number;
+}
+
 export interface IRecommendation {
   type: 'alternative_supplier' | 'bulk_order' | 'price_match' | 'other';
   title: string;
   description: string;
-  potentialSavings?: number;
+  potentialSavings?: number; // Legacy field for backward compatibility
+  savingsRange?: ISavingsRange; // Dollar amount range
+  savingsPercentRange?: ISavingsRange; // Percentage range (0-100)
   confidence: number;
   evidence: string[];
+  actionSteps: string[]; // Specific steps to achieve savings
+  estimatedTimeToImplement?: string; // e.g., "1-2 weeks", "immediate"
 }
 
 export interface IProcessing {
@@ -158,9 +167,19 @@ const InvoiceSchema = new Schema<IInvoice>(
         },
         title: String,
         description: String,
-        potentialSavings: Number,
+        potentialSavings: Number, // Legacy field
+        savingsRange: {
+          min: Number,
+          max: Number,
+        },
+        savingsPercentRange: {
+          min: Number,
+          max: Number,
+        },
         confidence: Number,
         evidence: [String],
+        actionSteps: [String],
+        estimatedTimeToImplement: String,
       },
     ],
     processing: {
