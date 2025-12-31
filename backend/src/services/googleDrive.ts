@@ -100,7 +100,7 @@ export async function getFolderId(shopId: string, folderType: 'unprocessed' | 'p
   }
 }
 
-async function findOrCreateFolder(parentId: string, folderName: string): Promise<string> {
+export async function findOrCreateFolder(parentId: string, folderName: string): Promise<string> {
   try {
     // Search for existing folder
     const response = await drive.files.list({

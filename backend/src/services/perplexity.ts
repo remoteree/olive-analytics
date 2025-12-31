@@ -46,14 +46,19 @@ For each recommendation, provide:
 Respond with a JSON array of recommendations.`;
 
   try {
+    // Use a model that's available in Perplexity API
+    // Common models: llama-3.1-sonar-small-128k-online, llama-3.1-sonar-large-128k-online, 
+    // sonar, sonar-pro, etc.
+    const model = process.env.PERPLEXITY_MODEL || 'llama-3.1-sonar-small-128k-online';
+    
     const response = await axios.post(
       'https://api.perplexity.ai/chat/completions',
       {
-        model: 'llama-3.1-sonar-large-128k-online',
+        model,
         messages: [
           {
             role: 'system',
-            content: 'You are a procurement expert helping auto shops save money. Always respond with valid JSON arrays.',
+            content: 'You are a procurement expert helping auto shops save money. Always respond with valid JSON arrays only, no additional text or markdown.',
           },
           {
             role: 'user',
@@ -61,12 +66,14 @@ Respond with a JSON array of recommendations.`;
           },
         ],
         temperature: 0.3,
+        max_tokens: 2000,
       },
       {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
+        timeout: 30000, // 30 second timeout
       }
     );
 
@@ -76,12 +83,45 @@ Respond with a JSON array of recommendations.`;
     }
 
     // Parse JSON from response (may need cleaning)
-    const cleanedContent = content.trim().replace(/```json\n?/g, '').replace(/```\n?/g, '');
-    const recommendations = JSON.parse(cleanedContent) as SavingsRecommendation[];
+    let cleanedContent = content.trim();
     
-    return Array.isArray(recommendations) ? recommendations : [];
-  } catch (error) {
-    console.error('Error generating savings recommendations:', error);
+    // Remove markdown code blocks if present
+    cleanedContent = cleanedContent.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    
+    // Try to extract JSON array if wrapped in other text
+    const jsonArrayMatch = cleanedContent.match(/\[[\s\S]*\]/);
+    if (jsonArrayMatch) {
+      cleanedContent = jsonArrayMatch[0];
+    }
+    
+    let recommendations: SavingsRecommendation[];
+    try {
+      recommendations = JSON.parse(cleanedContent) as SavingsRecommendation[];
+    } catch (parseError) {
+      console.error('Failed to parse Perplexity response as JSON:', cleanedContent.substring(0, 200));
+      // Return empty array if parsing fails
+      return [];
+    }
+    
+    // Validate and return
+    if (!Array.isArray(recommendations)) {
+      console.warn('Perplexity response is not an array, wrapping in array');
+      recommendations = [recommendations as any];
+    }
+    
+    // Validate structure
+    return recommendations.filter(rec => 
+      rec && 
+      typeof rec === 'object' && 
+      rec.type && 
+      rec.title && 
+      rec.description
+    );
+  } catch (error: any) {
+    console.error('Error generating savings recommendations:', error.message || error);
+    if (error.response) {
+      console.error('Perplexity API error response:', error.response.data);
+    }
     return [];
   }
 }

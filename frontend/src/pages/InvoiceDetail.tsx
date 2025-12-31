@@ -21,7 +21,8 @@ import {
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
 import RefreshIcon from '@mui/icons-material/Refresh';
-import { getInvoice, reprocessInvoice, getOriginalInvoiceUrl, Invoice } from '../api/invoices';
+import CancelIcon from '@mui/icons-material/Cancel';
+import { getInvoice, reprocessInvoice, cancelProcessing, getOriginalInvoiceUrl, Invoice } from '../api/invoices';
 
 export default function InvoiceDetail() {
   const { invoiceId } = useParams<{ invoiceId: string }>();
@@ -31,6 +32,7 @@ export default function InvoiceDetail() {
   const [error, setError] = useState<string | null>(null);
   const [originalUrl, setOriginalUrl] = useState<string | null>(null);
   const [reprocessing, setReprocessing] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     if (invoiceId) {
@@ -67,10 +69,28 @@ export default function InvoiceDetail() {
       setReprocessing(true);
       await reprocessInvoice(invoiceId);
       await loadInvoice(); // Reload to show updated status
-    } catch (err) {
-      setError('Failed to reprocess invoice');
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to reprocess invoice');
     } finally {
       setReprocessing(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!invoiceId) return;
+    
+    if (!window.confirm('Are you sure you want to cancel processing? The invoice will be requeued.')) {
+      return;
+    }
+    
+    try {
+      setCancelling(true);
+      await cancelProcessing(invoiceId);
+      await loadInvoice(); // Reload to show updated status
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to cancel invoice processing');
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -119,14 +139,25 @@ export default function InvoiceDetail() {
             color={getStatusColor(invoice.status) as any}
             sx={{ mr: 1 }}
           />
-          {invoice.status === 'failed' && (
+          {invoice.status === 'processing' && (
+            <Button
+              variant="outlined"
+              color="error"
+              startIcon={<CancelIcon />}
+              onClick={handleCancel}
+              disabled={cancelling}
+            >
+              {cancelling ? 'Cancelling...' : 'Cancel Processing'}
+            </Button>
+          )}
+          {(invoice.status === 'failed' || invoice.status === 'processed') && (
             <Button
               variant="outlined"
               startIcon={<RefreshIcon />}
               onClick={handleReprocess}
               disabled={reprocessing}
             >
-              Reprocess
+              {reprocessing ? 'Reprocessing...' : 'Reprocess'}
             </Button>
           )}
         </Box>

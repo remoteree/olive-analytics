@@ -2,6 +2,7 @@ import express, { Response } from 'express';
 import User from '../models/User';
 import Shop from '../models/Shop';
 import DriveScan from '../models/DriveScan';
+import Invoice from '../models/Invoice';
 import { authenticate, authorize, AuthRequest } from '../middleware/auth';
 import { scanDriveForInvoices, getScanStatus } from '../services/driveScanner';
 
@@ -94,6 +95,48 @@ router.get('/scans/:scanId', async (req: AuthRequest, res: Response) => {
     res.json(scan);
   } catch (error) {
     res.status(500).json({ error: 'Failed to fetch scan' });
+  }
+});
+
+// POST /api/admin/unlock-stuck-invoices - Manually unlock stuck invoices
+router.post('/unlock-stuck-invoices', async (req: AuthRequest, res: Response) => {
+  try {
+    const { timeoutMinutes = 30 } = req.body;
+    const timeoutThreshold = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    
+    const stuckInvoices = await Invoice.find({
+      status: 'processing',
+      'processing.lockedAt': { $lt: timeoutThreshold },
+    });
+    
+    if (stuckInvoices.length === 0) {
+      return res.json({ 
+        message: 'No stuck invoices found',
+        unlocked: 0 
+      });
+    }
+    
+    const unlockedIds: string[] = [];
+    
+    for (const invoice of stuckInvoices) {
+      const lockedDuration = Math.round((Date.now() - (invoice.processing.lockedAt?.getTime() || 0)) / 1000 / 60);
+      
+      invoice.status = 'queued';
+      invoice.processing.stage = 'queued';
+      invoice.processing.lockedAt = undefined;
+      invoice.processing.lastError = `Manually unlocked after being stuck for ${lockedDuration} minutes (stage: ${invoice.processing.stage})`;
+      
+      await invoice.save();
+      unlockedIds.push(invoice._id.toString());
+    }
+    
+    res.json({
+      message: `Unlocked ${stuckInvoices.length} stuck invoice(s)`,
+      unlocked: stuckInvoices.length,
+      invoiceIds: unlockedIds,
+    });
+  } catch (error: any) {
+    res.status(500).json({ error: error.message || 'Failed to unlock stuck invoices' });
   }
 });
 

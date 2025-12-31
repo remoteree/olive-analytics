@@ -97,6 +97,11 @@ export const reprocessInvoice = async (invoiceId: string): Promise<Invoice> => {
   return response.data;
 };
 
+export const cancelProcessing = async (invoiceId: string): Promise<Invoice> => {
+  const response = await client.post(`/invoices/${invoiceId}/cancel`);
+  return response.data;
+};
+
 export const getOriginalInvoiceUrl = async (invoiceId: string): Promise<string> => {
   const response = await client.get(`/files/${invoiceId}/original-url`);
   return response.data.url;

@@ -1,8 +1,20 @@
 import OpenAI from 'openai';
 
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// Lazy initialization - only create client when needed
+let openai: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openai) {
+    const apiKey = process.env.OPENAI_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENAI_API_KEY environment variable is not set');
+    }
+    openai = new OpenAI({
+      apiKey,
+    });
+  }
+  return openai;
+}
 
 export interface ContextClassificationResult {
   purchaseType: 'routine' | 'rush' | 'specialty';
@@ -52,12 +64,25 @@ Respond with a JSON object:
 }`;
 
   try {
-    const response = await openai.chat.completions.create({
-      model: 'gpt-4',
+    const client = getOpenAIClient();
+    // Use a model that supports JSON mode
+    // Models that support JSON mode: gpt-4o, gpt-4o-mini, gpt-4-turbo, gpt-4-1106-preview, gpt-3.5-turbo-1106+
+    const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+    
+    // Check if model supports JSON mode (newer models)
+    const supportsJsonMode = model.includes('gpt-4o') || 
+                            model.includes('gpt-4-turbo') || 
+                            model.includes('gpt-4-1106') ||
+                            model.includes('gpt-3.5-turbo-1106') ||
+                            model.includes('gpt-3.5-turbo-16') ||
+                            model.includes('gpt-3.5-turbo-0125');
+    
+    const response = await client.chat.completions.create({
+      model,
       messages: [
         {
           role: 'system',
-          content: 'You are an expert at analyzing auto shop invoices and understanding purchase patterns. Always respond with valid JSON.',
+          content: 'You are an expert at analyzing auto shop invoices and understanding purchase patterns. Always respond with valid JSON only, no additional text or markdown.',
         },
         {
           role: 'user',
@@ -65,7 +90,8 @@ Respond with a JSON object:
         },
       ],
       temperature: 0.3,
-      response_format: { type: 'json_object' },
+      // Only use JSON mode if model supports it
+      ...(supportsJsonMode ? { response_format: { type: 'json_object' } } : {}),
     });
 
     const content = response.choices[0]?.message?.content;
@@ -73,7 +99,27 @@ Respond with a JSON object:
       throw new Error('No response from OpenAI');
     }
 
-    const result = JSON.parse(content) as ContextClassificationResult;
+    // Parse JSON - handle both JSON mode and text responses
+    let result: ContextClassificationResult;
+    try {
+      // Try parsing directly
+      result = JSON.parse(content) as ContextClassificationResult;
+    } catch (parseError) {
+      // If direct parse fails, try extracting JSON from markdown code blocks
+      const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/) || content.match(/```\s*([\s\S]*?)\s*```/);
+      if (jsonMatch) {
+        result = JSON.parse(jsonMatch[1]) as ContextClassificationResult;
+      } else {
+        // Last resort: try to find JSON object in the text
+        const jsonObjectMatch = content.match(/\{[\s\S]*\}/);
+        if (jsonObjectMatch) {
+          result = JSON.parse(jsonObjectMatch[0]) as ContextClassificationResult;
+        } else {
+          throw new Error('Could not parse JSON from response');
+        }
+      }
+    }
+    
     return result;
   } catch (error) {
     console.error('Error classifying purchase context:', error);

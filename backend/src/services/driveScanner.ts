@@ -2,7 +2,7 @@ import { google } from 'googleapis';
 import DriveScan, { IDriveScan, IScannedFile } from '../models/DriveScan';
 import Invoice from '../models/Invoice';
 import Shop from '../models/Shop';
-import { getFolderId } from './googleDrive';
+import { findOrCreateFolder } from './googleDrive';
 
 const auth = new google.auth.GoogleAuth({
   keyFile: process.env.GOOGLE_APPLICATION_CREDENTIALS,
@@ -46,15 +46,6 @@ export async function scanDriveForInvoices(
       throw new Error('GOOGLE_DRIVE_BASE_FOLDER_ID not configured');
     }
 
-    // Get all shops to scan
-    let shops: Array<{ shopId: string }> = [];
-    if (options.shopId) {
-      shops = [{ shopId: options.shopId }];
-    } else {
-      const shopDocs = await Shop.find().select('shopId');
-      shops = shopDocs.map((s) => ({ shopId: s.shopId }));
-    }
-
     const scannedFiles: IScannedFile[] = [];
     const stats = {
       totalFound: 0,
@@ -64,10 +55,43 @@ export async function scanDriveForInvoices(
       errors: 0,
     };
 
-    // Scan each shop's unprocessed folder
-    for (const shop of shops) {
+    // Step 1: Find or create "Invoices" folder under base folder
+    const invoicesFolderId = await findOrCreateFolder(baseFolderId, 'Invoices');
+
+    // Step 2: Discover shop folders dynamically from Drive
+    let shopFolders: Array<{ id: string; name: string }> = [];
+    
+    if (options.shopId) {
+      // If specific shop requested, find that folder
+      const shopFolder = await findShopFolder(invoicesFolderId, options.shopId);
+      if (shopFolder) {
+        shopFolders = [shopFolder];
+      }
+    } else {
+      // Discover all shop folders
+      shopFolders = await listShopFolders(invoicesFolderId);
+    }
+
+    // Step 3: Process each shop folder
+    for (const shopFolder of shopFolders) {
+      const shopId = shopFolder.name; // Use folder name as shopId
+      
       try {
-        const unprocessedFolderId = await getFolderId(shop.shopId, 'unprocessed');
+        // Create shop if it doesn't exist
+        let shop = await Shop.findOne({ shopId });
+        if (!shop) {
+          shop = new Shop({
+            shopId,
+            name: shopId, // Use shopId as name, can be updated later
+          });
+          await shop.save();
+          console.log(`Created new shop: ${shopId}`);
+        }
+
+        // Find or create "unprocessed" folder within shop folder
+        const unprocessedFolderId = await findOrCreateFolder(shopFolder.id, 'unprocessed');
+        
+        // List all files in unprocessed folder
         const files = await listFilesInFolder(unprocessedFolderId);
 
         for (const file of files) {
@@ -143,7 +167,7 @@ export async function scanDriveForInvoices(
           }
         }
       } catch (error: any) {
-        console.error(`Error scanning shop ${shop.shopId}:`, error);
+        console.error(`Error processing shop folder ${shopFolder.name}:`, error);
         stats.errors++;
       }
     }
@@ -161,6 +185,69 @@ export async function scanDriveForInvoices(
     scan.error = error.message || String(error);
     scan.completedAt = new Date();
     await scan.save();
+    throw error;
+  }
+}
+
+/**
+ * List all shop folders (subfolders) within the Invoices folder
+ */
+async function listShopFolders(parentFolderId: string): Promise<Array<{ id: string; name: string }>> {
+  const folders: Array<{ id: string; name: string }> = [];
+  let pageToken: string | undefined;
+
+  do {
+    try {
+      const response = await drive.files.list({
+        q: `'${parentFolderId}' in parents and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        fields: 'nextPageToken, files(id, name)',
+        pageSize: 100,
+        pageToken,
+      });
+
+      if (response.data.files) {
+        folders.push(
+          ...response.data.files.map((f) => ({
+            id: f.id!,
+            name: f.name || 'unknown',
+          }))
+        );
+      }
+
+      pageToken = response.data.nextPageToken || undefined;
+    } catch (error) {
+      console.error(`Error listing shop folders in ${parentFolderId}:`, error);
+      throw error;
+    }
+  } while (pageToken);
+
+  return folders;
+}
+
+/**
+ * Find a specific shop folder by name
+ */
+async function findShopFolder(
+  parentFolderId: string,
+  shopId: string
+): Promise<{ id: string; name: string } | null> {
+  try {
+    const response = await drive.files.list({
+      q: `'${parentFolderId}' in parents and name='${shopId}' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+      fields: 'files(id, name)',
+      pageSize: 1,
+    });
+
+    if (response.data.files && response.data.files.length > 0) {
+      return {
+        id: response.data.files[0].id!,
+        name: response.data.files[0].name || shopId,
+      };
+    }
+
+    return null;
+  } catch (error) {
+    console.error(`Error finding shop folder ${shopId}:`, error);
     throw error;
   }
 }

@@ -2,6 +2,13 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { connectDB } from './config/database';
+// Import all models to ensure they're registered with Mongoose
+import './models/User';
+import './models/Shop';
+import './models/Supplier';
+import './models/Invoice';
+import './models/Part';
+import './models/DriveScan';
 import authRoutes from './routes/auth';
 import shopRoutes from './routes/shops';
 import invoiceRoutes from './routes/invoices';
