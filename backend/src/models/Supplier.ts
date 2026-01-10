@@ -34,3 +34,5 @@ const SupplierSchema = new Schema<ISupplier>({
 
 export default mongoose.model<ISupplier>('Supplier', SupplierSchema);
 
+
+

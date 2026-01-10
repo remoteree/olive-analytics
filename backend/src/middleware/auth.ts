@@ -90,3 +90,5 @@ export function requireShopOwnerOrAdmin(req: AuthRequest, res: Response, next: N
   res.status(403).json({ error: 'Insufficient permissions' });
 }
 
+
+

@@ -162,3 +162,5 @@ The worker process runs separately and processes queued invoices. Ensure your El
 - Use AWS Secrets Manager or Parameter Store for sensitive values in production
 - Rotate API keys and credentials regularly
 - Enable HTTPS in Elastic Beanstalk configuration
+
+

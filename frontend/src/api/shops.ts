@@ -18,3 +18,5 @@ export const getShop = async (shopId: string): Promise<Shop> => {
   return response.data;
 };
 
+
+
