@@ -49,6 +49,29 @@ export async function getPresignedUrl(key: string, expiresIn: number = 3600): Pr
   return await getSignedUrl(client, command, { expiresIn });
 }
 
+export async function downloadFromS3(key: string): Promise<{ buffer: Buffer; contentType: string }> {
+  const client = getS3Client();
+  const command = new GetObjectCommand({
+    Bucket: BUCKET_NAME,
+    Key: key,
+  });
+  
+  const response = await client.send(command);
+  
+  // Convert stream to buffer
+  const chunks: Uint8Array[] = [];
+  const stream = response.Body as any;
+  
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+  }
+  
+  const buffer = Buffer.concat(chunks);
+  const contentType = response.ContentType || 'application/octet-stream';
+  
+  return { buffer, contentType };
+}
+
 export function getS3Key(shopId: string, invoiceId: string, type: 'original' | 'processed', extension?: string): string {
   if (type === 'processed') {
     return `shops/${shopId}/invoices/${invoiceId}/processed.json`;

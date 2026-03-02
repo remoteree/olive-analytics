@@ -1,7 +1,8 @@
 import mongoose from 'mongoose';
 import Invoice, { InvoiceStatus, IInvoice } from '../models/Invoice';
+import Shop from '../models/Shop';
 import { downloadFile, moveFile, getFileExtension, getFolderId } from '../services/googleDrive';
-import { uploadToS3, getS3Key } from '../services/s3';
+import { uploadToS3, getS3Key, downloadFromS3 } from '../services/s3';
 import { extractInvoiceData } from '../services/ocr';
 import { resolveOrCreateShop, resolveOrCreateSupplier, resolveOrCreateParts } from '../services/entityResolution';
 import { classifyPurchaseContext } from '../services/llm';
@@ -34,13 +35,16 @@ export async function processInvoice(): Promise<IInvoice | null> {
     invoice.status = 'processed';
     invoice.processing.stage = 'completed';
     
-    // Move Drive file to processed folder
+    // Move Drive file to processed folder (only for Google Drive shops)
     try {
-      const processedFolderId = await getFolderId(invoice.shopId, 'processed');
-      if (invoice.driveFileId) {
+      const shop = await Shop.findOne({ shopId: invoice.shopId });
+      if (shop?.storageType === 'google-drive' && invoice.driveFileId) {
+        const processedFolderId = await getFolderId(invoice.shopId, 'processed');
         console.log(`[${new Date().toISOString()}] [FINALIZE] Moving Drive file ${invoice.driveFileId} to processed folder...`);
         await moveFile(invoice.driveFileId, processedFolderId);
         console.log(`[${new Date().toISOString()}] [FINALIZE] ✓ Drive file moved successfully`);
+      } else {
+        console.log(`[${new Date().toISOString()}] [FINALIZE] ✓ Invoice marked as processed (Olive storage - no Drive file to move)`);
       }
     } catch (error) {
       console.error(`[${new Date().toISOString()}] [FINALIZE] ✗ Failed to move file to processed folder: ${error}`);
@@ -70,10 +74,11 @@ export async function processInvoice(): Promise<IInvoice | null> {
       invoice.status = 'failed';
       invoice.processing.stage = 'failed';
       
-      // Move Drive file to failed folder
+      // Move Drive file to failed folder (only for Google Drive shops)
       try {
-        const failedFolderId = await getFolderId(invoice.shopId, 'failed');
-        if (invoice.driveFileId) {
+        const shop = await Shop.findOne({ shopId: invoice.shopId });
+        if (shop?.storageType === 'google-drive' && invoice.driveFileId) {
+          const failedFolderId = await getFolderId(invoice.shopId, 'failed');
           console.log(`[${new Date().toISOString()}] [FAILED] Moving Drive file ${invoice.driveFileId} to failed folder...`);
           await moveFile(invoice.driveFileId, failedFolderId);
           console.log(`[${new Date().toISOString()}] [FAILED] ✓ Drive file moved to failed folder`);
@@ -152,18 +157,48 @@ async function unlockStuckInvoices(): Promise<void> {
 }
 
 async function processInvoiceStages(invoice: IInvoice): Promise<void> {
-  // Stage 1: Download invoice
-  console.log(`[${new Date().toISOString()}] [STAGE 1/9] DOWNLOADING - Downloading invoice file from Google Drive...`);
+  // Get shop to determine storage type
+  const shop = await Shop.findOne({ shopId: invoice.shopId });
+  if (!shop) {
+    throw new Error(`Shop not found: ${invoice.shopId}`);
+  }
+  
+  let buffer: Buffer;
+  let mimeType: string;
+  let name: string;
+  
+  // Stage 1: Download invoice based on storage type
+  console.log(`[${new Date().toISOString()}] [STAGE 1/9] DOWNLOADING - Downloading invoice file from ${shop.storageType}...`);
   invoice.processing.stage = 'downloading';
   await invoice.save();
   
-  if (!invoice.driveFileId) {
-    throw new Error('Invoice missing driveFileId');
+  if (shop.storageType === 'olive') {
+    // Download from S3
+    if (!invoice.originalS3Key) {
+      throw new Error('Invoice missing originalS3Key for Olive storage');
+    }
+    
+    const s3Data = await downloadFromS3(invoice.originalS3Key);
+    buffer = s3Data.buffer;
+    mimeType = s3Data.contentType;
+    name = invoice.originalS3Key.split('/').pop() || 'invoice';
+    
+    const fileSizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
+    console.log(`[${new Date().toISOString()}] [STAGE 1/9] DOWNLOADING ✓ Downloaded file "${name}" (${fileSizeMB}MB, ${mimeType}) from S3`);
+  } else {
+    // Download from Google Drive (existing logic)
+    if (!invoice.driveFileId) {
+      throw new Error('Invoice missing driveFileId for Google Drive storage');
+    }
+    
+    const driveData = await downloadFile(invoice.driveFileId);
+    buffer = driveData.buffer;
+    mimeType = driveData.mimeType;
+    name = driveData.name;
+    
+    const fileSizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
+    console.log(`[${new Date().toISOString()}] [STAGE 1/9] DOWNLOADING ✓ Downloaded file "${name}" (${fileSizeMB}MB, ${mimeType}) from Google Drive`);
   }
-  
-  const { buffer, mimeType, name } = await downloadFile(invoice.driveFileId);
-  const fileSizeMB = (buffer.length / (1024 * 1024)).toFixed(2);
-  console.log(`[${new Date().toISOString()}] [STAGE 1/9] DOWNLOADING ✓ Downloaded file "${name}" (${fileSizeMB}MB, ${mimeType})`);
   
   // Stage 2: Compute hash and check for duplicates
   console.log(`[${new Date().toISOString()}] [STAGE 2/9] HASHING - Computing SHA-256 hash and checking for duplicates...`);
@@ -185,16 +220,21 @@ async function processInvoiceStages(invoice: IInvoice): Promise<void> {
   }
   console.log(`[${new Date().toISOString()}] [STAGE 2/9] HASHING ✓ No duplicate found`);
   
-  // Stage 3: Upload to S3
-  console.log(`[${new Date().toISOString()}] [STAGE 3/9] UPLOADING - Uploading original invoice to S3...`);
-  invoice.processing.stage = 'uploading';
-  await invoice.save();
-  
-  const extension = getFileExtension(mimeType);
-  const originalS3Key = getS3Key(invoice.shopId, invoice._id.toString(), 'original', extension);
-  await uploadToS3(originalS3Key, buffer, mimeType);
-  invoice.originalS3Key = originalS3Key;
-  console.log(`[${new Date().toISOString()}] [STAGE 3/9] UPLOADING ✓ Original invoice uploaded to S3: ${originalS3Key}`);
+  // Stage 3: Upload to S3 (only if from Google Drive, Olive invoices already in S3)
+  if (shop.storageType === 'google-drive') {
+    console.log(`[${new Date().toISOString()}] [STAGE 3/9] UPLOADING - Uploading original invoice to S3...`);
+    invoice.processing.stage = 'uploading';
+    await invoice.save();
+    
+    const extension = getFileExtension(mimeType);
+    const originalS3Key = getS3Key(invoice.shopId, invoice._id.toString(), 'original', extension);
+    await uploadToS3(originalS3Key, buffer, mimeType);
+    invoice.originalS3Key = originalS3Key;
+    console.log(`[${new Date().toISOString()}] [STAGE 3/9] UPLOADING ✓ Original invoice uploaded to S3: ${originalS3Key}`);
+  } else {
+    // For Olive storage, invoice already has originalS3Key, just mark as uploaded
+    console.log(`[${new Date().toISOString()}] [STAGE 3/9] UPLOADING ✓ Invoice already in S3: ${invoice.originalS3Key}`);
+  }
   
   // Stage 4: OCR & structured extraction
   console.log(`[${new Date().toISOString()}] [STAGE 4/9] EXTRACTING - Running OCR and extracting structured data...`);

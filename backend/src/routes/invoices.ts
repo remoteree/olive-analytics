@@ -4,6 +4,7 @@ import Shop from '../models/Shop';
 import Supplier from '../models/Supplier';
 import { authenticate, requireShopOwnerOrAdmin, AuthRequest } from '../middleware/auth';
 import { getFolderId, moveFile } from '../services/googleDrive';
+import { getPresignedUrl, downloadFromS3 } from '../services/s3';
 
 const router = express.Router();
 
@@ -99,9 +100,10 @@ router.post('/:invoiceId/cancel', requireShopOwnerOrAdmin, async (req: AuthReque
       });
     }
     
-    // Move file back to unprocessed folder if it exists
+    // Move file back to unprocessed folder if it exists (only for Google Drive shops)
     try {
-      if (invoice.driveFileId) {
+      const shop = await Shop.findOne({ shopId: invoice.shopId });
+      if (shop?.storageType === 'google-drive' && invoice.driveFileId) {
         const unprocessedFolderId = await getFolderId(invoice.shopId, 'unprocessed');
         await moveFile(invoice.driveFileId, unprocessedFolderId);
         console.log(`Moved invoice ${invoice._id} file back to unprocessed folder`);
@@ -143,9 +145,10 @@ router.post('/:invoiceId/reprocess', requireShopOwnerOrAdmin, async (req: AuthRe
       return res.status(403).json({ error: 'Access denied' });
     }
     
-    // Move file back to unprocessed folder if it's in processed or failed folder
+    // Move file back to unprocessed folder if it's in processed or failed folder (only for Google Drive shops)
     try {
-      if (invoice.driveFileId && (invoice.status === 'processed' || invoice.status === 'failed')) {
+      const shop = await Shop.findOne({ shopId: invoice.shopId });
+      if (shop?.storageType === 'google-drive' && invoice.driveFileId && (invoice.status === 'processed' || invoice.status === 'failed')) {
         const unprocessedFolderId = await getFolderId(invoice.shopId, 'unprocessed');
         await moveFile(invoice.driveFileId, unprocessedFolderId);
         console.log(`Moved invoice ${invoice._id} file back to unprocessed folder for reprocessing`);
@@ -167,6 +170,41 @@ router.post('/:invoiceId/reprocess', requireShopOwnerOrAdmin, async (req: AuthRe
     res.json({ message: 'Invoice queued for reprocessing', invoice });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to queue invoice for reprocessing' });
+  }
+});
+
+// GET /api/invoices/:invoiceId/file - Get invoice file (for Olive shops)
+router.get('/:invoiceId/file', requireShopOwnerOrAdmin, async (req: AuthRequest, res: Response) => {
+  try {
+    const invoice = await Invoice.findById(req.params.invoiceId);
+    
+    if (!invoice) {
+      return res.status(404).json({ error: 'Invoice not found' });
+    }
+    
+    // Shop owners can only access invoices from their shop
+    if (req.user?.role === 'shop-owner' && invoice.shopId !== req.user.shopId) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    const shop = await Shop.findOne({ shopId: invoice.shopId });
+    
+    if (shop?.storageType === 'olive' && invoice.originalS3Key) {
+      // For Olive shops, download from S3 and return file
+      const { buffer, contentType } = await downloadFromS3(invoice.originalS3Key);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `inline; filename="invoice-${invoice._id}"`);
+      res.send(buffer);
+    } else if (invoice.originalS3Key) {
+      // For Google Drive shops, return presigned URL
+      const url = await getPresignedUrl(invoice.originalS3Key);
+      res.json({ url });
+    } else {
+      res.status(404).json({ error: 'Invoice file not found' });
+    }
+  } catch (error: any) {
+    console.error('Error fetching invoice file:', error);
+    res.status(500).json({ error: error.message || 'Failed to fetch invoice file' });
   }
 });
 

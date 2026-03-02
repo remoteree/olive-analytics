@@ -1,10 +1,14 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
+export type StorageType = 'google-drive' | 'olive';
+
 export interface IShop extends Document {
   shopId: string;
   name: string;
   cohort?: string;
   ownerId?: mongoose.Types.ObjectId; // Reference to User
+  storageType?: StorageType; // 'google-drive' or 'olive'
+  uploadToken?: string; // Token for public upload link
   createdAt: Date;
 }
 
@@ -25,6 +29,17 @@ const ShopSchema = new Schema<IShop>({
   ownerId: {
     type: Schema.Types.ObjectId,
     ref: 'User',
+    index: true,
+  },
+  storageType: {
+    type: String,
+    enum: ['google-drive', 'olive'],
+    default: 'google-drive',
+  },
+  uploadToken: {
+    type: String,
+    unique: true,
+    sparse: true,
     index: true,
   },
   createdAt: {

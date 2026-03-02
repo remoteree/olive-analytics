@@ -1,4 +1,5 @@
 import express, { Response } from 'express';
+import crypto from 'crypto';
 import User from '../models/User';
 import Shop from '../models/Shop';
 import DriveScan from '../models/DriveScan';
@@ -137,6 +138,127 @@ router.post('/unlock-stuck-invoices', async (req: AuthRequest, res: Response) =>
     });
   } catch (error: any) {
     res.status(500).json({ error: error.message || 'Failed to unlock stuck invoices' });
+  }
+});
+
+// POST /api/admin/shops/onboard - Onboard a new shop
+router.post('/shops/onboard', async (req: AuthRequest, res: Response) => {
+  try {
+    const { shopId, name, cohort, storageType } = req.body;
+    
+    if (!shopId || !name) {
+      return res.status(400).json({ error: 'shopId and name are required' });
+    }
+    
+    // Generate upload token
+    const uploadToken = crypto.randomBytes(32).toString('hex');
+    
+    const shop = new Shop({
+      shopId,
+      name,
+      cohort,
+      storageType: storageType || 'google-drive',
+      uploadToken,
+    });
+    
+    await shop.save();
+    
+    // Generate upload URL (frontend route, not API route)
+    // In development, frontend runs on port 3000, backend on 3001
+    // In production, they're on the same domain and use HTTPS
+    let frontendBaseUrl = process.env.FRONTEND_URL;
+    if (!frontendBaseUrl) {
+      const host = req.get('host') || 'localhost:3001';
+      const isProduction = process.env.NODE_ENV === 'production';
+      const protocol = isProduction ? 'https' : req.protocol;
+      
+      if (host.includes('localhost:3001') || host.includes('127.0.0.1:3001')) {
+        // Development: use frontend port
+        frontendBaseUrl = `${req.protocol}://localhost:3000`;
+      } else {
+        // Production: same domain with HTTPS
+        frontendBaseUrl = `${protocol}://${host}`;
+      }
+    }
+    const uploadUrl = `${frontendBaseUrl}/upload/${uploadToken}`;
+    
+    res.status(201).json({
+      shop,
+      uploadUrl,
+      uploadToken,
+    });
+  } catch (error: any) {
+    if (error.code === 11000) {
+      return res.status(400).json({ error: 'Shop ID or upload token already exists' });
+    }
+    console.error('Error onboarding shop:', error);
+    res.status(500).json({ error: error.message || 'Failed to onboard shop' });
+  }
+});
+
+// PUT /api/admin/shops/:shopId/storage-type - Update shop storage type
+router.put('/shops/:shopId/storage-type', async (req: AuthRequest, res: Response) => {
+  try {
+    const { storageType } = req.body;
+    
+    if (!['google-drive', 'olive'].includes(storageType)) {
+      return res.status(400).json({ error: 'Invalid storage type. Must be "google-drive" or "olive"' });
+    }
+    
+    const shop = await Shop.findOne({ shopId: req.params.shopId });
+    
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+    
+    shop.storageType = storageType as 'google-drive' | 'olive';
+    await shop.save();
+    
+    res.json(shop);
+  } catch (error: any) {
+    console.error('Error updating storage type:', error);
+    res.status(500).json({ error: error.message || 'Failed to update storage type' });
+  }
+});
+
+// GET /api/admin/shops/:shopId/upload-link - Get upload link for shop
+router.get('/shops/:shopId/upload-link', async (req: AuthRequest, res: Response) => {
+  try {
+    const shop = await Shop.findOne({ shopId: req.params.shopId });
+    
+    if (!shop) {
+      return res.status(404).json({ error: 'Shop not found' });
+    }
+    
+    if (!shop.uploadToken) {
+      // Generate token if doesn't exist
+      shop.uploadToken = crypto.randomBytes(32).toString('hex');
+      await shop.save();
+    }
+    
+    // Generate upload URL (frontend route, not API route)
+    // In development, frontend runs on port 3000, backend on 3001
+    // In production, they're on the same domain and use HTTPS
+    let frontendBaseUrl = process.env.FRONTEND_URL;
+    if (!frontendBaseUrl) {
+      const host = req.get('host') || 'localhost:3001';
+      const isProduction = process.env.NODE_ENV === 'production';
+      const protocol = isProduction ? 'https' : req.protocol;
+      
+      if (host.includes('localhost:3001') || host.includes('127.0.0.1:3001')) {
+        // Development: use frontend port
+        frontendBaseUrl = `${req.protocol}://localhost:3000`;
+      } else {
+        // Production: same domain with HTTPS
+        frontendBaseUrl = `${protocol}://${host}`;
+      }
+    }
+    const uploadUrl = `${frontendBaseUrl}/upload/${shop.uploadToken}`;
+    
+    res.json({ uploadUrl, uploadToken: shop.uploadToken });
+  } catch (error: any) {
+    console.error('Error getting upload link:', error);
+    res.status(500).json({ error: error.message || 'Failed to get upload link' });
   }
 });
 

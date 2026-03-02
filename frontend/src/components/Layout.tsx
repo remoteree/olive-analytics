@@ -72,6 +72,13 @@ export default function Layout({ children }: LayoutProps) {
               </Button>
               <Button
                 color="inherit"
+                onClick={() => navigate('/onboard-shop')}
+                variant={location.pathname === '/onboard-shop' ? 'outlined' : 'text'}
+              >
+                Onboard Shop
+              </Button>
+              <Button
+                color="inherit"
                 onClick={() => navigate('/scan-drive')}
                 variant={location.pathname === '/scan-drive' ? 'outlined' : 'text'}
               >

@@ -10,18 +10,32 @@ import {
   Alert,
   Button,
   Chip,
+  FormControl,
+  InputLabel,
+  Select,
+  MenuItem,
+  TextField,
+  InputAdornment,
+  IconButton,
+  Snackbar,
 } from '@mui/material';
 import ArrowBackIcon from '@mui/icons-material/ArrowBack';
-import { getShop, Shop } from '../api/shops';
+import { ContentCopy, Check } from '@mui/icons-material';
+import { getShop, Shop, updateShopStorageType, getShopUploadLink } from '../api/shops';
 import { getInvoices, Invoice } from '../api/invoices';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function ShopDetail() {
   const { shopId } = useParams<{ shopId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [shop, setShop] = useState<Shop | null>(null);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [uploadUrl, setUploadUrl] = useState('');
+  const [copied, setCopied] = useState(false);
+  const [savingStorageType, setSavingStorageType] = useState(false);
 
   useEffect(() => {
     if (shopId) {
@@ -38,11 +52,41 @@ export default function ShopDetail() {
       ]);
       setShop(shopData);
       setInvoices(invoicesData);
+      
+      // Load upload link if admin
+      if (user?.role === 'admin' && shopData.uploadToken) {
+        try {
+          const linkData = await getShopUploadLink(shopId!);
+          setUploadUrl(linkData.uploadUrl);
+        } catch (err) {
+          console.error('Failed to load upload link:', err);
+        }
+      }
     } catch (err) {
       setError('Failed to load shop data');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleStorageTypeChange = async (newStorageType: 'google-drive' | 'olive') => {
+    if (!shopId) return;
+    
+    setSavingStorageType(true);
+    try {
+      const updatedShop = await updateShopStorageType(shopId, newStorageType);
+      setShop(updatedShop);
+    } catch (err: any) {
+      setError(err.response?.data?.error || 'Failed to update storage type');
+    } finally {
+      setSavingStorageType(false);
+    }
+  };
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(uploadUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const getStatusColor = (status: string) => {
@@ -103,6 +147,42 @@ export default function ShopDetail() {
                   Cohort: {shop.cohort}
                 </Typography>
               )}
+              {user?.role === 'admin' && (
+                <>
+                  <FormControl fullWidth sx={{ mt: 2 }}>
+                    <InputLabel>Storage Type</InputLabel>
+                    <Select
+                      value={shop.storageType || 'google-drive'}
+                      onChange={(e) => handleStorageTypeChange(e.target.value as 'google-drive' | 'olive')}
+                      disabled={savingStorageType}
+                    >
+                      <MenuItem value="google-drive">Google Drive</MenuItem>
+                      <MenuItem value="olive">Olive Storage</MenuItem>
+                    </Select>
+                  </FormControl>
+                  {uploadUrl && (
+                    <Box sx={{ mt: 2 }}>
+                      <Typography variant="body2" color="text.secondary" gutterBottom>
+                        Upload Link:
+                      </Typography>
+                      <TextField
+                        fullWidth
+                        size="small"
+                        value={uploadUrl}
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">
+                              <IconButton onClick={handleCopy} size="small">
+                                {copied ? <Check fontSize="small" color="success" /> : <ContentCopy fontSize="small" />}
+                              </IconButton>
+                            </InputAdornment>
+                          ),
+                        }}
+                      />
+                    </Box>
+                  )}
+                </>
+              )}
               <Typography variant="h6" sx={{ mt: 2 }}>
                 Total Spend: ${totalSpend.toFixed(2)}
               </Typography>
@@ -162,6 +242,12 @@ export default function ShopDetail() {
           </Card>
         </Grid>
       </Grid>
+      
+      <Snackbar
+        open={copied}
+        autoHideDuration={2000}
+        message="Upload link copied to clipboard"
+      />
     </Box>
   );
 }

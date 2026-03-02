@@ -12,6 +12,8 @@ import ShopDetail from './pages/ShopDetail';
 import InvoicesList from './pages/InvoicesList';
 import InvoiceDetail from './pages/InvoiceDetail';
 import ScanDrive from './pages/ScanDrive';
+import OnboardShop from './pages/OnboardShop';
+import UploadInvoice from './pages/UploadInvoice';
 
 function App() {
   const { user, loading } = useAuth();
@@ -26,6 +28,7 @@ function App() {
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
       <Route path="/forgot-password" element={user ? <Navigate to="/" replace /> : <ForgotPassword />} />
       <Route path="/reset-password" element={user ? <Navigate to="/" replace /> : <ResetPassword />} />
+      <Route path="/upload/:token" element={<UploadInvoice />} />
 
       {/* Protected routes */}
       <Route
@@ -92,6 +95,16 @@ function App() {
           <ProtectedRoute requireAdmin>
             <Layout>
               <ScanDrive />
+            </Layout>
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/onboard-shop"
+        element={
+          <ProtectedRoute requireAdmin>
+            <Layout>
+              <OnboardShop />
             </Layout>
           </ProtectedRoute>
         }

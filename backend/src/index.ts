@@ -15,6 +15,7 @@ import shopRoutes from './routes/shops';
 import invoiceRoutes from './routes/invoices';
 import fileRoutes from './routes/files';
 import adminRoutes from './routes/admin';
+import uploadRoutes from './routes/upload';
 
 dotenv.config();
 
@@ -28,6 +29,7 @@ app.use(express.json());
 
 // Public routes
 app.use('/api/auth', authRoutes);
+app.use('/api/upload', uploadRoutes); // Public upload route (no auth required)
 
 // Protected routes
 app.use('/api/shops', shopRoutes);
